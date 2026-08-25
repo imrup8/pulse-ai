@@ -9,7 +9,9 @@ document.addEventListener('DOMContentLoaded', () => {
     let activeModel = localStorage.getItem('gemini_model') || 'gemini-3.6-flash';
     let systemPrompt = localStorage.getItem('gemini_system_prompt') || '';
     let temperature = parseFloat(localStorage.getItem('gemini_temp') || '0.7');
-    let currentImageBase64 = null;
+    let currentFileBase64 = null;
+    let currentFileName = null;
+    let currentFileType = null;
     let isStreaming = false;
 
     // DOM Elements
@@ -34,6 +36,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const imageFileInput = document.getElementById('image-file-input');
     const imagePreviewContainer = document.getElementById('image-preview-container');
     const imagePreviewImg = document.getElementById('image-preview-img');
+    const filePreviewBadge = document.getElementById('file-preview-badge');
     const removeImgBtn = document.getElementById('remove-img-btn');
     const micBtn = document.getElementById('mic-btn');
 
@@ -68,7 +71,7 @@ document.addEventListener('DOMContentLoaded', () => {
         modelSelect.value = activeModel;
         updateActiveModelBadge(activeModel);
 
-        // Check health & API Key
+        // Check health
         checkHealth();
 
         // Render Chat History sidebar list
@@ -137,10 +140,10 @@ document.addEventListener('DOMContentLoaded', () => {
         toggleSidebarBtn.addEventListener('click', () => sidebar.classList.toggle('open'));
         closeSidebarBtn.addEventListener('click', () => sidebar.classList.remove('open'));
 
-        // Image Attachment
+        // File/Image Attachment
         attachBtn.addEventListener('click', () => imageFileInput.click());
-        imageFileInput.addEventListener('change', handleImageSelect);
-        removeImgBtn.addEventListener('click', removeImagePreview);
+        imageFileInput.addEventListener('change', handleFileSelect);
+        removeImgBtn.addEventListener('click', removeFilePreview);
 
         // Voice Recognition
         setupVoiceRecognition();
@@ -154,10 +157,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 settingsModal.classList.add('active');
             });
         }
-            tempRange.value = temperature;
-            tempVal.textContent = temperature;
-            settingsModal.classList.add('active');
-        });
         closeSettingsModal.addEventListener('click', () => settingsModal.classList.remove('active'));
         cancelSettingsBtn.addEventListener('click', () => settingsModal.classList.remove('active'));
         tempRange.addEventListener('input', (e) => tempVal.textContent = e.target.value);
@@ -169,28 +168,49 @@ document.addEventListener('DOMContentLoaded', () => {
         activeModelName.textContent = option ? option.textContent : modelId;
     }
 
-    // Handle Image File Upload
-    function handleImageSelect(e) {
+    // Handle File / Document / Image Upload
+    function handleFileSelect(e) {
         const file = e.target.files[0];
         if (!file) return;
 
-        if (!file.type.startsWith('image/')) {
-            alert('Please select an image file.');
-            return;
-        }
+        currentFileName = file.name;
+        currentFileType = file.type || 'application/octet-stream';
 
         const reader = new FileReader();
         reader.onload = (evt) => {
-            currentImageBase64 = evt.target.result;
-            imagePreviewImg.src = currentImageBase64;
+            currentFileBase64 = evt.target.result;
+
+            if (file.type.startsWith('image/')) {
+                imagePreviewImg.src = currentFileBase64;
+                imagePreviewImg.style.display = 'block';
+                if (filePreviewBadge) filePreviewBadge.style.display = 'none';
+            } else {
+                imagePreviewImg.style.display = 'none';
+                if (filePreviewBadge) {
+                    let fileIcon = '📄';
+                    if (file.name.endsWith('.pdf')) fileIcon = '📕';
+                    else if (file.name.match(/\.(py|js|ts|html|css|json|sql|cpp|c|java)$/i)) fileIcon = '💻';
+
+                    const fileSizeKB = (file.size / 1024).toFixed(1);
+                    filePreviewBadge.innerHTML = `<span style="font-size: 1.2rem; margin-right: 6px;">${fileIcon}</span> <span>${escapeHtml(file.name)}</span> <small style="color: var(--text-muted); margin-left: 6px;">(${fileSizeKB} KB)</small>`;
+                    filePreviewBadge.style.display = 'flex';
+                }
+            }
             imagePreviewContainer.style.display = 'block';
         };
         reader.readAsDataURL(file);
     }
 
-    function removeImagePreview() {
-        currentImageBase64 = null;
+    function removeFilePreview() {
+        currentFileBase64 = null;
+        currentFileName = null;
+        currentFileType = null;
         imagePreviewImg.src = '';
+        imagePreviewImg.style.display = 'none';
+        if (filePreviewBadge) {
+            filePreviewBadge.style.display = 'none';
+            filePreviewBadge.innerHTML = '';
+        }
         imagePreviewContainer.style.display = 'none';
         imageFileInput.value = '';
     }
@@ -229,7 +249,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Send Message
     async function sendMessage() {
         const text = userInput.value.trim();
-        if ((!text && !currentImageBase64) || isStreaming) return;
+        if ((!text && !currentFileBase64) || isStreaming) return;
 
         isStreaming = true;
         sendBtn.disabled = true;
@@ -241,7 +261,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const userMsg = {
             role: 'user',
             content: text,
-            image: currentImageBase64,
+            fileData: currentFileBase64,
+            fileName: currentFileName,
+            fileType: currentFileType,
             timestamp: new Date().toISOString()
         };
 
@@ -259,14 +281,15 @@ document.addEventListener('DOMContentLoaded', () => {
         // Reset input area
         userInput.value = '';
         userInput.style.height = 'auto';
-        const imagePayload = currentImageBase64;
-        removeImagePreview();
+        const filePayload = currentFileBase64;
+        const fileNamePayload = currentFileName;
+        removeFilePreview();
 
         // Create AI message placeholder in UI
         const aiMsgRow = createAIMessageUIPlaceholder();
         const contentDiv = aiMsgRow.querySelector('.message-content');
 
-        // History for API (exclude image strings to keep lightweight)
+        // History for API (exclude large file data strings to keep lightweight)
         const historyForApi = session.messages.slice(0, -1).map(m => ({
             role: m.role,
             content: m.content
@@ -282,7 +305,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     model: activeModel,
                     system_instruction: systemPrompt,
                     temperature: temperature,
-                    image_data: imagePayload
+                    file_data: filePayload,
+                    file_name: fileNamePayload,
+                    image_data: filePayload
                 })
             });
 
@@ -370,9 +395,21 @@ document.addEventListener('DOMContentLoaded', () => {
         const row = document.createElement('div');
         row.className = `message-row ${msg.role === 'user' ? 'user' : 'ai'}`;
 
-        let imgHtml = msg.image ? `<img src="${msg.image}" class="message-image" alt="User Image">` : '';
-        let contentHtml = '';
+        let fileData = msg.fileData || msg.image;
+        let attachmentHtml = '';
+        if (fileData) {
+            if (fileData.startsWith('data:image/')) {
+                attachmentHtml = `<img src="${fileData}" class="message-image" alt="User Upload">`;
+            } else {
+                const fname = msg.fileName || 'Attached Document';
+                let icon = '📄';
+                if (fname.endsWith('.pdf')) icon = '📕';
+                else if (fname.match(/\.(py|js|ts|html|css|json|sql|cpp|c|java)$/i)) icon = '💻';
+                attachmentHtml = `<div class="attached-file-chip"><span style="font-size: 1.1rem; margin-right: 6px;">${icon}</span> <span>${escapeHtml(fname)}</span></div>`;
+            }
+        }
 
+        let contentHtml = '';
         if (msg.role === 'user') {
             contentHtml = `<p>${escapeHtml(msg.content)}</p>`;
         }
@@ -380,7 +417,7 @@ document.addEventListener('DOMContentLoaded', () => {
         row.innerHTML = `
             <div class="avatar">${msg.role === 'user' ? '👤' : '✨'}</div>
             <div class="message-content">
-                ${imgHtml}
+                ${attachmentHtml}
                 ${contentHtml}
             </div>
         `;

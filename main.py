@@ -77,7 +77,9 @@ class ChatRequest(BaseModel):
     model: Optional[str] = "gemini-3.6-flash"
     system_instruction: Optional[str] = None
     temperature: Optional[float] = 0.7
-    image_data: Optional[str] = None # Base64 data URL if present
+    image_data: Optional[str] = None # Base64 data URL for backward compatibility
+    file_data: Optional[str] = None # Base64 data URL for documents/images
+    file_name: Optional[str] = None
     api_key: Optional[str] = None
 
 class SaveApiKeyRequest(BaseModel):
@@ -152,16 +154,30 @@ async def chat_stream(req: ChatRequest, x_api_key: Optional[str] = Header(None))
                 )
             )
 
-    # Process prompt & optional image
+    # Process prompt & optional file/image attachment
     user_parts = []
-    if req.image_data and "," in req.image_data:
+    attachment_payload = req.file_data or req.image_data
+    if attachment_payload and "," in attachment_payload:
         try:
-            header, encoded = req.image_data.split(",", 1)
-            mime_type = header.split(";")[0].split(":")[1]
-            img_bytes = base64.b64decode(encoded)
-            user_parts.append(types.Part.from_bytes(data=img_bytes, mime_type=mime_type))
+            header, encoded = attachment_payload.split(",", 1)
+            mime_type = header.split(";")[0].split(":")[1] if ";" in header and ":" in header else "application/octet-stream"
+            raw_bytes = base64.b64decode(encoded)
+            filename = req.file_name or "attached_file"
+
+            # Pass images and PDFs directly as native SDK byte parts
+            if mime_type.startswith("image/") or mime_type == "application/pdf":
+                user_parts.append(types.Part.from_bytes(data=raw_bytes, mime_type=mime_type))
+            else:
+                # Decode text/code documents
+                try:
+                    text_content = raw_bytes.decode("utf-8")
+                except UnicodeDecodeError:
+                    text_content = raw_bytes.decode("latin-1", errors="ignore")
+                
+                doc_prompt = f"\n--- ATTACHED FILE ({filename}) ---\n{text_content}\n--- END OF ATTACHED FILE ---\n"
+                user_parts.append(types.Part.from_text(text=doc_prompt))
         except Exception as e:
-            logger.error(f"Error decoding image data: {e}")
+            logger.error(f"Error decoding attached file: {e}")
 
     user_parts.append(types.Part.from_text(text=req.message))
     contents.append(types.Content(role="user", parts=user_parts))

@@ -144,20 +144,21 @@
                 </div>
             </div>
 
-            <!-- Image Upload Preview Box (Hidden by default) -->
+            <!-- File Upload Preview Box (Hidden by default) -->
             <div class="image-preview-container" id="image-preview-container" style="display: none;">
-                <div class="preview-item">
-                    <img id="image-preview-img" src="" alt="Upload Preview">
-                    <button class="remove-img-btn" id="remove-img-btn" aria-label="Remove image">&times;</button>
+                <div class="preview-item" id="preview-item">
+                    <img id="image-preview-img" src="" alt="Upload Preview" style="display: none;">
+                    <div id="file-preview-badge" class="file-preview-badge" style="display: none;"></div>
+                    <button class="remove-img-btn" id="remove-img-btn" aria-label="Remove file">&times;</button>
                 </div>
             </div>
 
             <!-- Input Container -->
             <div class="input-area-wrapper">
                 <form class="input-form" id="chat-form">
-                    <input type="file" id="image-file-input" accept="image/*" style="display: none;">
+                    <input type="file" id="image-file-input" accept="image/*,.pdf,.txt,.md,.py,.js,.ts,.json,.html,.css,.csv,.sql,.docx,.log" style="display: none;">
                     
-                    <button type="button" class="action-btn attach-btn" id="attach-btn" title="Attach Image">
+                    <button type="button" class="action-btn attach-btn" id="attach-btn" title="Attach Document or Image (PDF, Code, Text, Image)">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
                     </button>
                     

@@ -807,6 +807,32 @@ body {
     box-shadow: 0 0 15px rgba(124, 58, 237, 0.3);
 }
 
+.file-preview-badge {
+    display: flex;
+    align-items: center;
+    background: rgba(124, 58, 237, 0.15);
+    border: 1px solid var(--border-glow);
+    padding: 10px 16px;
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    font-weight: 600;
+    box-shadow: 0 0 15px rgba(124, 58, 237, 0.2);
+}
+
+.attached-file-chip {
+    display: inline-flex;
+    align-items: center;
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    padding: 8px 14px;
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-size: 0.88rem;
+    font-weight: 600;
+    margin-bottom: 10px;
+}
+
 .remove-img-btn {
     position: absolute;
     top: -8px;
