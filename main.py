@@ -54,7 +54,13 @@ app.add_middleware(
 # Helper function to get GenAI Client
 def get_genai_client(custom_api_key: Optional[str] = None):
     from google import genai
+    from dotenv import load_dotenv
+    load_dotenv(override=True)
+
     api_key = custom_api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    if api_key:
+        api_key = api_key.strip()
+
     if not api_key:
         # Try initializing default client (which auto-detects env vars)
         try:
