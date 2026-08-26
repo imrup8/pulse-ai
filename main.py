@@ -6,6 +6,13 @@ import base64
 import logging
 from typing import List, Optional
 
+try:
+    from google.oauth2 import id_token as google_id_token
+    from google.auth.transport import requests as google_auth_requests
+except ImportError:
+    google_id_token = None
+    google_auth_requests = None
+
 # Auto-switch to virtual environment if running outside .venv
 try:
     from fastapi import FastAPI, HTTPException, Header
@@ -91,12 +98,52 @@ class ChatRequest(BaseModel):
 class SaveApiKeyRequest(BaseModel):
     api_key: str
 
+# --- Auth Helpers ---
+def verify_google_token(token: str):
+    """Verify a Google ID token and return the decoded user info."""
+    client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+    if not client_id:
+        raise HTTPException(status_code=500, detail="GOOGLE_CLIENT_ID not configured on server.")
+    if not google_id_token or not google_auth_requests:
+        raise HTTPException(status_code=500, detail="google-auth library not installed.")
+    try:
+        idinfo = google_id_token.verify_oauth2_token(
+            token, google_auth_requests.Request(), client_id
+        )
+        return idinfo
+    except ValueError as e:
+        raise HTTPException(status_code=401, detail=f"Invalid or expired token: {e}")
+
 @app.get("/api/health")
 async def health_check():
     api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
     return {
         "status": "healthy",
         "has_api_key": bool(api_key and len(api_key.strip()) > 0)
+    }
+
+# --- Auth Endpoints ---
+@app.get("/api/auth/config")
+async def auth_config():
+    """Return the Google Client ID so the frontend can initialize GIS."""
+    client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+    return {"google_client_id": client_id, "auth_enabled": bool(client_id)}
+
+class VerifyTokenRequest(BaseModel):
+    token: str
+
+@app.post("/api/auth/verify")
+async def auth_verify(req: VerifyTokenRequest):
+    """Verify a Google ID token and return user info."""
+    idinfo = verify_google_token(req.token)
+    return {
+        "valid": True,
+        "user": {
+            "email": idinfo.get("email", ""),
+            "name": idinfo.get("name", ""),
+            "picture": idinfo.get("picture", ""),
+            "sub": idinfo.get("sub", "")
+        }
     }
 
 @app.post("/api/save-key")
@@ -140,8 +187,16 @@ async def list_models():
     return {"models": models}
 
 @app.post("/api/chat")
-async def chat_stream(req: ChatRequest, x_api_key: Optional[str] = Header(None)):
+async def chat_stream(req: ChatRequest, x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     from google.genai import types
+    
+    # Verify Google auth token if auth is enabled
+    google_client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+    if google_client_id:
+        if not authorization or not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Authentication required. Please sign in with Google.")
+        token = authorization.replace("Bearer ", "", 1)
+        verify_google_token(token)  # raises 401 if invalid
     
     api_key_override = req.api_key or x_api_key
     client = get_genai_client(api_key_override)

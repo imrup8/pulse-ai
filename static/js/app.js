@@ -1,5 +1,6 @@
 /**
- * Gemini AI Chatbot Client Application
+ * Pulse AI Chatbot Client Application
+ * With Google Sign-In Authentication
  */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -13,6 +14,12 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentFileName = null;
     let currentFileType = null;
     let isStreaming = false;
+
+    // Auth State
+    let authToken = sessionStorage.getItem('pulse_auth_token') || null;
+    let authUser = JSON.parse(sessionStorage.getItem('pulse_auth_user') || 'null');
+    let authEnabled = false; // Will be set based on server config
+    let googleClientId = null;
 
     // DOM Elements
     const chatMessages = document.getElementById('chat-messages');
@@ -50,6 +57,25 @@ document.addEventListener('DOMContentLoaded', () => {
     const tempRange = document.getElementById('temp-range');
     const tempVal = document.getElementById('temp-val');
 
+    // Auth DOM Elements
+    const sidebarSigninBtn = document.getElementById('sidebar-signin-btn');
+    const sidebarUserProfile = document.getElementById('sidebar-user-profile');
+    const sidebarUserAvatar = document.getElementById('sidebar-user-avatar');
+    const sidebarUserName = document.getElementById('sidebar-user-name');
+    const sidebarUserEmail = document.getElementById('sidebar-user-email');
+    const headerUserContainer = document.getElementById('header-user-container');
+    const headerUserBtn = document.getElementById('header-user-btn');
+    const headerUserAvatar = document.getElementById('header-user-avatar');
+    const headerUserName = document.getElementById('header-user-name');
+    const headerUserDropdown = document.getElementById('header-user-dropdown');
+    const dropdownAvatar = document.getElementById('dropdown-avatar');
+    const dropdownName = document.getElementById('dropdown-name');
+    const dropdownEmail = document.getElementById('dropdown-email');
+    const signoutBtn = document.getElementById('signout-btn');
+    const authInputOverlay = document.getElementById('auth-input-overlay');
+    const authOverlaySigninBtn = document.getElementById('auth-overlay-signin-btn');
+    const inputAreaWrapper = document.getElementById('input-area-wrapper');
+
     // Configure Marked.js
     if (window.marked) {
         marked.setOptions({
@@ -74,6 +100,9 @@ document.addEventListener('DOMContentLoaded', () => {
         // Check health
         checkHealth();
 
+        // Fetch auth config from server
+        await fetchAuthConfig();
+
         // Render Chat History sidebar list
         renderHistoryList();
 
@@ -86,6 +115,252 @@ document.addEventListener('DOMContentLoaded', () => {
 
         setupEventListeners();
     }
+
+    // ======== AUTH SYSTEM ========
+
+    async function fetchAuthConfig() {
+        try {
+            const res = await fetch('/api/auth/config');
+            const data = await res.json();
+            authEnabled = data.auth_enabled;
+            googleClientId = data.google_client_id;
+
+            if (authEnabled && googleClientId) {
+                // If we have a stored token and user, restore the signed-in state
+                if (authToken && authUser) {
+                    updateAuthUI(true);
+                } else {
+                    updateAuthUI(false);
+                }
+                // Initialize Google Identity Services once the script has loaded
+                initGoogleSignIn();
+            } else {
+                // Auth not enabled — hide all auth UI, allow free chat
+                updateAuthUI(true); // treat as "signed in" so input is unlocked
+                hideAllAuthUI();
+            }
+        } catch (e) {
+            console.error('Failed to fetch auth config:', e);
+            // If we can't reach the server, default to open (no auth gating)
+            updateAuthUI(true);
+            hideAllAuthUI();
+        }
+    }
+
+    function hideAllAuthUI() {
+        if (sidebarSigninBtn) sidebarSigninBtn.style.display = 'none';
+        if (sidebarUserProfile) sidebarUserProfile.style.display = 'none';
+        if (headerUserContainer) headerUserContainer.style.display = 'none';
+        if (authInputOverlay) authInputOverlay.classList.remove('visible');
+        if (inputAreaWrapper) {
+            inputAreaWrapper.classList.remove('auth-disabled');
+            inputAreaWrapper.classList.add('auth-enabled');
+        }
+    }
+
+    function initGoogleSignIn() {
+        // Wait for the Google Identity Services library to load
+        if (typeof google === 'undefined' || !google.accounts) {
+            // Retry after a short delay
+            setTimeout(initGoogleSignIn, 300);
+            return;
+        }
+
+        google.accounts.id.initialize({
+            client_id: googleClientId,
+            callback: handleGoogleSignIn,
+            auto_select: false,
+            cancel_on_tap_outside: true
+        });
+    }
+
+    function triggerGoogleSignIn() {
+        if (typeof google === 'undefined' || !google.accounts) {
+            showAuthToast('Google Sign-In is loading. Please try again in a moment.');
+            return;
+        }
+        google.accounts.id.prompt((notification) => {
+            if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+                // FedCM / One Tap was blocked or skipped — fall back to rendering a button
+                // We'll use a popup-based approach instead
+                fallbackGoogleSignIn();
+            }
+        });
+    }
+
+    function fallbackGoogleSignIn() {
+        // Create a temporary hidden container for the Google rendered button
+        const tempDiv = document.createElement('div');
+        tempDiv.id = 'g_id_signin_temp';
+        tempDiv.style.position = 'fixed';
+        tempDiv.style.top = '50%';
+        tempDiv.style.left = '50%';
+        tempDiv.style.transform = 'translate(-50%, -50%)';
+        tempDiv.style.zIndex = '9999';
+        tempDiv.style.background = 'rgba(3, 7, 18, 0.9)';
+        tempDiv.style.padding = '40px';
+        tempDiv.style.borderRadius = '20px';
+        tempDiv.style.border = '1px solid rgba(124, 58, 237, 0.4)';
+        tempDiv.style.backdropFilter = 'blur(20px)';
+        tempDiv.style.boxShadow = '0 20px 60px rgba(0,0,0,0.7)';
+
+        const title = document.createElement('p');
+        title.textContent = 'Sign in to continue';
+        title.style.color = '#f8fafc';
+        title.style.fontSize = '1.1rem';
+        title.style.fontWeight = '600';
+        title.style.marginBottom = '20px';
+        title.style.textAlign = 'center';
+        title.style.fontFamily = "'Outfit', sans-serif";
+
+        const btnContainer = document.createElement('div');
+        btnContainer.id = 'g_id_signin_btn';
+
+        const closeBtn = document.createElement('button');
+        closeBtn.textContent = '✕';
+        closeBtn.style.cssText = 'position:absolute;top:12px;right:16px;background:none;border:none;color:#94a3b8;font-size:1.2rem;cursor:pointer;';
+        closeBtn.onclick = () => tempDiv.remove();
+
+        tempDiv.appendChild(closeBtn);
+        tempDiv.appendChild(title);
+        tempDiv.appendChild(btnContainer);
+        document.body.appendChild(tempDiv);
+
+        google.accounts.id.renderButton(btnContainer, {
+            type: 'standard',
+            theme: 'filled_blue',
+            size: 'large',
+            text: 'signin_with',
+            shape: 'pill',
+            width: 260
+        });
+    }
+
+    function handleGoogleSignIn(response) {
+        // Remove fallback popup if present
+        const tempDiv = document.getElementById('g_id_signin_temp');
+        if (tempDiv) tempDiv.remove();
+
+        const idToken = response.credential;
+        if (!idToken) {
+            showAuthToast('Sign-in failed. Please try again.');
+            return;
+        }
+
+        // Decode the JWT payload (base64url) to get user info client-side
+        try {
+            const payload = JSON.parse(atob(idToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+            authToken = idToken;
+            authUser = {
+                name: payload.name || '',
+                email: payload.email || '',
+                picture: payload.picture || '',
+                sub: payload.sub || ''
+            };
+
+            // Store in sessionStorage
+            sessionStorage.setItem('pulse_auth_token', authToken);
+            sessionStorage.setItem('pulse_auth_user', JSON.stringify(authUser));
+
+            updateAuthUI(true);
+            showAuthToast(`Welcome, ${authUser.name}! 🎉`);
+        } catch (e) {
+            console.error('Failed to decode token:', e);
+            showAuthToast('Sign-in failed. Invalid token.');
+        }
+    }
+
+    function signOut() {
+        authToken = null;
+        authUser = null;
+        sessionStorage.removeItem('pulse_auth_token');
+        sessionStorage.removeItem('pulse_auth_user');
+
+        // Revoke Google session
+        if (typeof google !== 'undefined' && google.accounts) {
+            google.accounts.id.disableAutoSelect();
+        }
+
+        updateAuthUI(false);
+        closeUserDropdown();
+        showAuthToast('You have been signed out.');
+    }
+
+    function updateAuthUI(isSignedIn) {
+        if (!authEnabled) return; // Don't touch UI if auth is not enabled
+
+        if (isSignedIn && authUser) {
+            // Sidebar: show user profile, hide sign-in button
+            if (sidebarSigninBtn) sidebarSigninBtn.style.display = 'none';
+            if (sidebarUserProfile) {
+                sidebarUserProfile.style.display = 'flex';
+                sidebarUserAvatar.src = authUser.picture || '';
+                sidebarUserName.textContent = authUser.name || '';
+                sidebarUserEmail.textContent = authUser.email || '';
+            }
+
+            // Header: show user button
+            if (headerUserContainer) {
+                headerUserContainer.style.display = 'block';
+                headerUserAvatar.src = authUser.picture || '';
+                headerUserName.textContent = authUser.name?.split(' ')[0] || '';
+                dropdownAvatar.src = authUser.picture || '';
+                dropdownName.textContent = authUser.name || '';
+                dropdownEmail.textContent = authUser.email || '';
+            }
+
+            // Input: unlock
+            if (authInputOverlay) authInputOverlay.classList.remove('visible');
+            if (inputAreaWrapper) {
+                inputAreaWrapper.classList.remove('auth-disabled');
+                inputAreaWrapper.classList.add('auth-enabled');
+            }
+        } else {
+            // Sidebar: show sign-in button, hide profile
+            if (sidebarSigninBtn) sidebarSigninBtn.style.display = 'flex';
+            if (sidebarUserProfile) sidebarUserProfile.style.display = 'none';
+
+            // Header: hide user button
+            if (headerUserContainer) headerUserContainer.style.display = 'none';
+
+            // Input: lock with overlay
+            if (authInputOverlay) authInputOverlay.classList.add('visible');
+            if (inputAreaWrapper) {
+                inputAreaWrapper.classList.add('auth-disabled');
+                inputAreaWrapper.classList.remove('auth-enabled');
+            }
+        }
+    }
+
+    function showAuthToast(message) {
+        // Remove existing toast
+        const existing = document.querySelector('.auth-toast');
+        if (existing) existing.remove();
+
+        const toast = document.createElement('div');
+        toast.className = 'auth-toast';
+        toast.textContent = message;
+        document.body.appendChild(toast);
+
+        requestAnimationFrame(() => {
+            toast.classList.add('show');
+        });
+
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 300);
+        }, 3000);
+    }
+
+    function closeUserDropdown() {
+        if (headerUserDropdown) headerUserDropdown.classList.remove('open');
+    }
+
+    function isAuthenticated() {
+        return !authEnabled || (authToken && authUser);
+    }
+
+    // ======== END AUTH SYSTEM ========
 
     async function checkHealth() {
         try {
@@ -161,6 +436,31 @@ document.addEventListener('DOMContentLoaded', () => {
         cancelSettingsBtn.addEventListener('click', () => settingsModal.classList.remove('active'));
         tempRange.addEventListener('input', (e) => tempVal.textContent = e.target.value);
         saveSettingsBtn.addEventListener('click', saveSettings);
+
+        // ---- Auth Event Listeners ----
+        if (sidebarSigninBtn) {
+            sidebarSigninBtn.addEventListener('click', triggerGoogleSignIn);
+        }
+        if (authOverlaySigninBtn) {
+            authOverlaySigninBtn.addEventListener('click', triggerGoogleSignIn);
+        }
+        if (headerUserBtn) {
+            headerUserBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                headerUserDropdown.classList.toggle('open');
+            });
+        }
+        if (signoutBtn) {
+            signoutBtn.addEventListener('click', signOut);
+        }
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', (e) => {
+            if (headerUserDropdown && !headerUserDropdown.contains(e.target) && 
+                headerUserBtn && !headerUserBtn.contains(e.target)) {
+                closeUserDropdown();
+            }
+        });
     }
 
     function updateActiveModelBadge(modelId) {
@@ -251,6 +551,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const text = userInput.value.trim();
         if ((!text && !currentFileBase64) || isStreaming) return;
 
+        // Auth gate: check if the user is signed in
+        if (!isAuthenticated()) {
+            showAuthToast('🔒 Please sign in with Google to send messages.');
+            triggerGoogleSignIn();
+            return;
+        }
+
         isStreaming = true;
         sendBtn.disabled = true;
 
@@ -296,9 +603,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }));
 
         try {
+            // Build request headers — include auth token if available
+            const headers = { 'Content-Type': 'application/json' };
+            if (authToken) {
+                headers['Authorization'] = `Bearer ${authToken}`;
+            }
+
             const response = await fetch('/api/chat', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: headers,
                 body: JSON.stringify({
                     message: text,
                     history: historyForApi,
@@ -313,6 +626,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (!response.ok) {
                 const errData = await response.json();
+                if (response.status === 401) {
+                    // Token expired or invalid — force sign out
+                    signOut();
+                    showAuthToast('🔒 Session expired. Please sign in again.');
+                    throw new Error('Authentication required. Please sign in.');
+                }
                 throw new Error(errData.detail || 'Failed to stream response');
             }
 
