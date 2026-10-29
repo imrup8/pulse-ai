@@ -57,7 +57,7 @@ HOST=0.0.0.0
 python run.py
 ```
 
-Open your browser and navigate to: **`(https://pulse-ai-6vmz.onrender.com)`**
+Open your browser and navigate to: **`https://pulse-ai-6vmz.onrender.com`**
 
 ---
 
