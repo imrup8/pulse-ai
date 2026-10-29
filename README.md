@@ -2,8 +2,6 @@
 
 A modern, high-performance, full-stack AI Assistant application built using Python FastAPI and Google's official `google-genai` SDK (`gemini-3.6-flash`, `gemini-2.5-flash`, `gemini-1.5-flash`).
 
-![Pulse AI](https://pulse-ai-6vmz.onrender.com)
-
 ## Features ⚡
 
 - **Real-Time Streaming Responses**: Instant response generation using Server-Sent Events (SSE).
@@ -57,7 +55,7 @@ HOST=0.0.0.0
 python run.py
 ```
 
-Open your browser and navigate to: **`https://pulse-ai-6vmz.onrender.com`**
+Open your browser and navigate to: **(https://pulse-ai-6vmz.onrender.com)**
 
 ---
 
