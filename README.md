@@ -2,7 +2,7 @@
 
 A modern, high-performance, full-stack AI Assistant application built using Python FastAPI and Google's official `google-genai` SDK (`gemini-3.6-flash`, `gemini-2.5-flash`, `gemini-1.5-flash`).
 
-![Pulse AI](static/index.html)
+![Pulse AI](https://pulse-ai-6vmz.onrender.com)
 
 ## Features ⚡
 
